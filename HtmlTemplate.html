@@ -1,0 +1,33 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <style>
+
+        .container {
+            position: absolute;
+            width: $$width$$px;
+            height: $$height$$px;
+            background-image: url(Background.png);
+            background-position: top left;
+            background-repeat: no-repeat;
+        }
+
+        .shape {
+            position: absolute;
+            display: flex;
+            flex-direction: row;
+            /* background-color: yellow;  */
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+            .shape div {
+             /*   background-color: lime;  */
+            }
+    </style>
+</head>
+<body>
+    <div class="container">
+        $$shapes$$
+    </div>
+</body>
+</html>
