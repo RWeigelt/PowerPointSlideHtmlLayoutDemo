@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Office.Core;
 using Shape = Microsoft.Office.Interop.PowerPoint.Shape;
@@ -13,7 +14,7 @@ class HtmlPageTextGenerator
     private readonly int _heightInPixels;
     private readonly float _slideWidth;
     private readonly float _slideHeight;
-    private readonly StringBuilder _shapeHtml = new StringBuilder();
+    private readonly StringBuilder _shapeHtml = new();
 
     public HtmlPageTextGenerator(string template, int widthInPixels, int heightInPixels, float slideWidth, float slideHeight)
     {
@@ -27,7 +28,7 @@ class HtmlPageTextGenerator
         _slideHeight = slideHeight;
     }
 
-    public void AddShape(Shape shape)
+    public void AddInsertionPoint(Shape shape)
     {
         var styleBuilder = new StringBuilder();
 
@@ -42,27 +43,49 @@ class HtmlPageTextGenerator
         styleBuilder.Append($"align-items: {verticalAlignment};");
 
         var textRange = textFrame.TextRange;
-        var (horizontalAlignment,justifyContent) = GetHorizontalAlignment(textRange);
+        var (horizontalAlignment, justifyContent) = GetHorizontalAlignment(textRange);
         styleBuilder.Append($"justify-content: {justifyContent};");
 
         switch (horizontalAlignment)
         {
             case HorizontalAlignment.Left:
                 styleBuilder.Append($"left: {GetHorizontalPixels(shape.Left)}px;");
+                styleBuilder.Append($"text-align: left;");
                 break;
             case HorizontalAlignment.Center:
-                styleBuilder.Append($"left: {GetHorizontalPixels(shape.Left + shape.Width/2)}px;");
+                styleBuilder.Append($"left: {GetHorizontalPixels(shape.Left + shape.Width / 2)}px;");
+                styleBuilder.Append($"text-align: center;");
                 styleBuilder.Append("transform: translate(-50%, 0);");
                 break;
             case HorizontalAlignment.Right:
-                styleBuilder.Append($"right: {GetHorizontalPixels(_slideWidth-(shape.Left+shape.Width))}px;");
+                styleBuilder.Append($"right: {GetHorizontalPixels(_slideWidth - (shape.Left + shape.Width))}px;");
+                styleBuilder.Append($"text-align: right;");
                 break;
         }
         styleBuilder.Append($"width: {GetHorizontalPixels(shape.Width)}px;");
         styleBuilder.Append($"top: {GetVerticalPixels(shape.Top)}px;");
-        styleBuilder.Append($"height: {GetVerticalPixels(shape.Height)}px;");
+        switch (textFrame.AutoSize)
+        {
+            case MsoAutoSize.msoAutoSizeNone:
+            case MsoAutoSize.msoAutoSizeTextToFitShape: // not supported, so we'll keep the container size
+                styleBuilder.Append($"width: {GetHorizontalPixels(shape.Width)}px;");
+                styleBuilder.Append($"height: {GetVerticalPixels(shape.Height)}px;");
+                break;
+            case MsoAutoSize.msoAutoSizeShapeToFitText:
+                styleBuilder.Append("width: auto;");
+                styleBuilder.Append("height: auto;");
+                break;
+        }
 
-
+        switch (textFrame.WordWrap)
+        {
+            case MsoTriState.msoTrue:
+                styleBuilder.Append("white-space: pre-wrap;overflow-wrap: break-word;");
+                break;
+            case MsoTriState.msoFalse:
+                styleBuilder.Append("white-space: pre;");
+                break;
+        }
 
         var font = textRange.Font;
         styleBuilder.Append($"font-family: '{font.Name}';");
@@ -80,12 +103,27 @@ class HtmlPageTextGenerator
             styleBuilder.Append("text-transform: uppercase");
         }
 
+        var paragraphFormat = textRange.ParagraphFormat;
+        if (paragraphFormat.LineRuleWithin == MsoTriState.msoTrue)
+        {
+            if (paragraphFormat.SpaceWithin!=1.0)
+                styleBuilder.Append($"line-height: {paragraphFormat.SpaceWithin.ToString(CultureInfo.InvariantCulture)};");
+        }
+        else
+        {
+            var points = paragraphFormat.SpaceWithin;
+            var pixels = (points * 96) / 72; // For HTML, 1pt = 1/72th of 1in, 1px = 1/96th of 1in (according to W3C, see https://www.w3.org/TR/css3-values/#absolute-lengths)
+            styleBuilder.Append($"line-height: {pixels.ToString(CultureInfo.InvariantCulture)}px;");
+        }
+        Marshal.FinalReleaseComObject(paragraphFormat);
+
         string textDecoration = font.UnderlineStyle != MsoTextUnderlineType.msoNoUnderline
             ? "underline"
             : String.Empty;
         if (font.StrikeThrough == MsoTriState.msoTrue)
         {
-            if (textDecoration.Length > 0) textDecoration += " ";
+            if (textDecoration.Length > 0)
+                textDecoration += " ";
             textDecoration += "line-through";
         }
         if (textDecoration.Length > 0)
@@ -93,11 +131,33 @@ class HtmlPageTextGenerator
             styleBuilder.Append($"text-decoration: {textDecoration};");
         }
 
-        var color = System.Drawing.ColorTranslator.ToHtml(System.Drawing.ColorTranslator.FromOle(font.Fill.ForeColor.RGB));
-        styleBuilder.Append($"color: {color};");
+        styleBuilder.Append($"color: {GetFontColor(font)};");
+
+        var insertionPointText = GetInsertionPointText(shape);
+        Marshal.FinalReleaseComObject(font);
 
 
-        _shapeHtml.AppendLine($"<div class=\"shape\" style=\"{styleBuilder}\"><div>{shape.TextFrame.TextRange.Text}</div></div>");
+        _shapeHtml.AppendLine($"<div class=\"shape\" style=\"{styleBuilder}\"><div>{insertionPointText}</div></div>");
+    }
+
+    private static string GetFontColor(Font2 font)
+    {
+        var fillFormat = font.Fill;
+        var foreColor = fillFormat.ForeColor;
+        var color = System.Drawing.ColorTranslator.ToHtml(System.Drawing.ColorTranslator.FromOle(foreColor.RGB));
+        Marshal.FinalReleaseComObject(foreColor);
+        Marshal.FinalReleaseComObject(fillFormat);
+        return color;
+    }
+
+    private string GetInsertionPointText(Shape shape)
+    {
+        var textFrame = shape.TextFrame2;
+        var textRange = textFrame.TextRange;
+        var text = textRange.Text;
+        Marshal.FinalReleaseComObject(textRange);
+        Marshal.FinalReleaseComObject(textFrame);
+        return text;
     }
 
     private string GetVerticalAlignment(TextFrame2 textFrame)
@@ -144,11 +204,11 @@ class HtmlPageTextGenerator
         return _template.Replace("$$shapes$$", _shapeHtml.ToString());
     }
 
-    public void AddItems(IEnumerable<Shape> shapes)
+    public void AddInsertionPoints(IEnumerable<Shape> shapes)
     {
         foreach (var shape in shapes)
         {
-            AddShape(shape);
+            AddInsertionPoint(shape);
         }
     }
 

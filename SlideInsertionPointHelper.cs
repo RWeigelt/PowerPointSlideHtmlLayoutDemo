@@ -23,7 +23,7 @@ public static class SlideInsertionPointHelper
                 continue;
             }
 
-            if (IsInsertionPoint(shape))
+            if (ContainsInsertionPoint(shape))
             {
                 collectedItems.Add(shape);
             }
@@ -52,7 +52,7 @@ public static class SlideInsertionPointHelper
         //
         foreach (Shape shape in groupShapes)
         {
-            if (IsInsertionPoint(shape))
+            if (ContainsInsertionPoint(shape))
             {
                 collectedShapes.Add(shape);
             }
@@ -68,7 +68,7 @@ public static class SlideInsertionPointHelper
             {
                 var cell = row.Cells[cellIndex];
                 var shape = cell.Shape;
-                if (IsInsertionPoint(shape))
+                if (ContainsInsertionPoint(shape))
                 {
                     collectedItems.Add(shape);
                 }
@@ -76,7 +76,7 @@ public static class SlideInsertionPointHelper
         }
     }
 
-    private static bool IsInsertionPoint(Shape shape)
+    private static bool ContainsInsertionPoint(Shape shape)
     {
         if (shape.HasTextFrame != MsoTriState.msoTrue)
             return false;
@@ -86,7 +86,13 @@ public static class SlideInsertionPointHelper
             return false;
 
         var text = textFrame.TextRange.Text;
-        return text.StartsWith("{{") && text.EndsWith("}}");
+        var startIndex = text.IndexOf("{{", StringComparison.Ordinal);
+        if (startIndex == -1)
+            return false;
+        var endIndex = text.IndexOf("}}", StringComparison.Ordinal);
+        if (endIndex == -1)
+            return false;
+        return startIndex < endIndex;
     }
 
 }

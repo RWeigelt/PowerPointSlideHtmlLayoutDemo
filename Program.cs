@@ -70,7 +70,7 @@ var insertionPoints = SlideInsertionPointHelper.CollectInsertionPoints(slide);
 
 var htmlTemplate = PowerPointSlideHtmlLayoutDemo.Properties.Resources.HtmlTemplate;
 var htmlPageTextGenerator = new HtmlPageTextGenerator(htmlTemplate, pngWidth, pngHeight, slideWidth, slideHeight);
-htmlPageTextGenerator.AddItems(insertionPoints);
+htmlPageTextGenerator.AddInsertionPoints(insertionPoints);
 //
 // Create the HTML page containing the insertion points with proper layout and styling.
 // Anything else on the PowerPoint slide that was not an insertion point (including other
