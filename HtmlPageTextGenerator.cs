@@ -115,7 +115,7 @@ class HtmlPageTextGenerator
             var pixels = (points * 96) / 72; // For HTML, 1pt = 1/72th of 1in, 1px = 1/96th of 1in (according to W3C, see https://www.w3.org/TR/css3-values/#absolute-lengths)
             styleBuilder.Append($"line-height: {pixels.ToString(CultureInfo.InvariantCulture)}px;");
         }
-        Marshal.FinalReleaseComObject(paragraphFormat);
+        Marshal.ReleaseComObject(paragraphFormat);
 
         string textDecoration = font.UnderlineStyle != MsoTextUnderlineType.msoNoUnderline
             ? "underline"
@@ -134,7 +134,7 @@ class HtmlPageTextGenerator
         styleBuilder.Append($"color: {GetFontColor(font)};");
 
         var insertionPointText = GetInsertionPointText(shape);
-        Marshal.FinalReleaseComObject(font);
+        Marshal.ReleaseComObject(font);
 
 
         _shapeHtml.AppendLine($"<div class=\"shape\" style=\"{styleBuilder}\"><div>{insertionPointText}</div></div>");
@@ -145,8 +145,8 @@ class HtmlPageTextGenerator
         var fillFormat = font.Fill;
         var foreColor = fillFormat.ForeColor;
         var color = System.Drawing.ColorTranslator.ToHtml(System.Drawing.ColorTranslator.FromOle(foreColor.RGB));
-        Marshal.FinalReleaseComObject(foreColor);
-        Marshal.FinalReleaseComObject(fillFormat);
+        Marshal.ReleaseComObject(foreColor);
+        Marshal.ReleaseComObject(fillFormat);
         return color;
     }
 
@@ -155,8 +155,8 @@ class HtmlPageTextGenerator
         var textFrame = shape.TextFrame2;
         var textRange = textFrame.TextRange;
         var text = textRange.Text;
-        Marshal.FinalReleaseComObject(textRange);
-        Marshal.FinalReleaseComObject(textFrame);
+        Marshal.ReleaseComObject(textRange);
+        Marshal.ReleaseComObject(textFrame);
         return text;
     }
 
@@ -199,9 +199,11 @@ class HtmlPageTextGenerator
     }
 
 
-    public string GetHtmlText()
+    public string GetHtmlText(string backgroundCss)
     {
-        return _template.Replace("$$shapes$$", _shapeHtml.ToString());
+        return _template
+            .Replace("$$shapes$$", _shapeHtml.ToString())
+            .Replace("$$background$$", backgroundCss);
     }
 
     public void AddInsertionPoints(IEnumerable<Shape> shapes)

@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using Microsoft.Office.Core;
+using Microsoft.Office.Interop.PowerPoint;
 using PowerPointSlideHtmlLayoutDemo;
 //
 // This code opens a PowerPoint presentation and looks at the first slide
@@ -20,7 +21,7 @@ using PowerPointSlideHtmlLayoutDemo;
 // - Insertion points are a concept implemented by this code. An insertion
 //   point is simply any shape with a text like "{{something}}".
 //
-// So, a placeholder *can* be an insertion point, but an insertion
+// So, a placeholder *can* be used for an insertion point, but an insertion
 // point does not necessarily have to be placeholder.
 //
 // IMPORTANT: The project is a proof-of-concept for how to turn a PowerPoint
@@ -33,10 +34,32 @@ using PowerPointSlideHtmlLayoutDemo;
 // to the output directory during compilation.
 //
 var pptxFilePath = Path.Combine(AppContext.BaseDirectory, "Example.pptx");
-var powerPoint = new Microsoft.Office.Interop.PowerPoint.Application();
-var presentations = powerPoint.Presentations;
-var presentation = presentations.Open(pptxFilePath, MsoTriState.msoFalse, MsoTriState.msoFalse, MsoTriState.msoFalse);
 
+//
+// The code may be running on a machine where the user has PowerPoint already
+// running. In this case we do not want to close the app after we're done.
+//
+var powerPointAlreadyRunning = PowerPointHelper.TryGetRunningApplication(out var powerPoint);
+if (!powerPointAlreadyRunning)
+{
+    powerPoint = new Microsoft.Office.Interop.PowerPoint.Application();
+}
+//
+// We'll also check whether the presentation is already open and use it in its
+// current state, regardless of whether it has unsaved changes. An alternative
+// approach could be to always copy the PPTX file to a temporary location
+// and open it there.
+// In both cases, you could check for presentation.Saved== MsoTriState.msoTrue
+// and, if this is not the case, ask the user if he/she would like to save the
+// presentation (via presentation.Save());
+//
+var presentations = powerPoint.Presentations;
+var presentationAlreadyOpen = PowerPointHelper.TryGetOpenPresentation(presentations, pptxFilePath, out var presentation);
+if (!presentationAlreadyOpen)
+{
+    presentation = presentations.Open(pptxFilePath, MsoTriState.msoFalse, MsoTriState.msoFalse, MsoTriState.msoFalse);
+}
+    
 //
 // The size of the PNG file to be created for the background is hard-coded
 // to be rather small so I can use it directly in the blog post. Obviously,
@@ -80,28 +103,69 @@ var myPicturesPathPath = Environment.GetFolderPath(Environment.SpecialFolder.MyP
 var pngFilePath = Path.Combine(myPicturesPathPath, "Background.png");
 var htmlFilePath = Path.Combine(myPicturesPathPath, "HtmlPage.html");
 
-var htmlText = htmlPageTextGenerator.GetHtmlText();
+var htmlText = htmlPageTextGenerator.GetHtmlText("url(Background.png)");
 File.WriteAllText(htmlFilePath, htmlText);
-
+//
+// To create the PNG file, we'll have to hide all insertion points. 
+//
+if (presentationAlreadyOpen)
+{
+    // If the presentation has already been opened by the user, it should remain open and,
+    // most importantly, remain unmodified after the creation of the PNG.
+    // This is why we'll start a new undo entry, perform the operation and undo the actions.
+    powerPoint.StartNewUndoEntry();
+}
 SlideInsertionPointHelper.HideInsertionPoints(insertionPoints);
 slide.Export(pngFilePath, "PNG", pngWidth, pngHeight);
-
+CommandBars commandBars = null;
+if (presentationAlreadyOpen)
+{
+    commandBars = powerPoint.CommandBars;
+    try
+    {
+        commandBars.ExecuteMso("Undo"); // This fails if no PowerPoint window is open
+        powerPoint.StartNewUndoEntry();
+    }
+    catch
+    {
+        // just do nothing
+    }
+}
+//
+// Alternative to separate HTML and PNG files: Embed the PNG file into the HTML
+// file so we have just one file per slide.
+//
+var bytes = File.ReadAllBytes(pngFilePath);
+var imageData = Convert.ToBase64String(bytes);
+var dataUrl = $"url('data:image/png;base64,{imageData}')";
+htmlText = htmlPageTextGenerator.GetHtmlText(dataUrl);
+var htmlFilePath2 = Path.Combine(myPicturesPathPath, "HtmlPage2.html");
+File.WriteAllText(htmlFilePath2, htmlText);
 //
 // Cleanup
 //
-// https://support.microsoft.com/en-us/topic/office-application-does-not-exit-after-automation-from-visual-studio-net-client-96068fdb-7a84-ecf0-3b91-282fae81a618
+if (commandBars != null)
+{
+    Marshal.ReleaseComObject(commandBars);
+}
 foreach (var insertionPoint in insertionPoints)
 {
-    Marshal.FinalReleaseComObject(insertionPoint);
+    Marshal.ReleaseComObject(insertionPoint);
 }
 Array.Clear(insertionPoints);
-Marshal.FinalReleaseComObject(pageSetup);
-Marshal.FinalReleaseComObject(slide);
-Marshal.FinalReleaseComObject(slides);
-presentation.Close();
-Marshal.FinalReleaseComObject(presentation);
-Marshal.FinalReleaseComObject(presentations);
-powerPoint.Quit();
-Marshal.FinalReleaseComObject(powerPoint);
+Marshal.ReleaseComObject(pageSetup);
+Marshal.ReleaseComObject(slide);
+Marshal.ReleaseComObject(slides);
+if (!presentationAlreadyOpen)
+{
+    presentation.Close();
+}
+Marshal.ReleaseComObject(presentation);
+Marshal.ReleaseComObject(presentations);
+if (!powerPointAlreadyRunning)
+{
+    powerPoint.Quit();
+}
+Marshal.ReleaseComObject(powerPoint);
 GC.Collect();
 GC.WaitForPendingFinalizers();
